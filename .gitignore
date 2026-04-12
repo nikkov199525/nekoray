@@ -85,3 +85,11 @@ CMakeLists.txt.user*
 
 .vs
 out
+
+# Fork local artifacts
+neko.log
+tmp_*.txt
+tmp_*.go
+/build-go/
+/build-msvc/
+/config/temp/

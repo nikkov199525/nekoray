@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QProcessEnvironment>
 #include <QUrl>
 
 #define WriteTempFile(fn, data)                                   \
@@ -71,6 +72,30 @@ namespace NekoGui_fmt {
                 return result;
             }
 
+            auto findXrayAsset = [&](const QString &assetName) {
+                auto asset = NekoGui::FindCoreAsset(assetName);
+                if (!asset.isEmpty()) return asset;
+                auto programInfo = QFileInfo(result.program);
+                if (programInfo.exists() && programInfo.isFile()) {
+                    auto sidecar = QFileInfo(programInfo.absolutePath() + "/" + assetName);
+                    if (sidecar.exists()) return sidecar.absoluteFilePath();
+                }
+                return QString{};
+            };
+            auto geoip = findXrayAsset("geoip.dat");
+            auto geosite = findXrayAsset("geosite.dat");
+            if (geoip.isEmpty()) result.error = "geoip.dat not found";
+            if (geosite.isEmpty()) result.error = "geosite.dat not found";
+            if (!result.error.isEmpty()) return result;
+            auto geoipDir = QFileInfo(geoip).absolutePath();
+            auto geositeDir = QFileInfo(geosite).absolutePath();
+            if (geoipDir.isEmpty() || geositeDir.isEmpty() || geoipDir != geositeDir) {
+                result.error = "geoip.dat/geosite.dat must be in the same directory";
+                return result;
+            }
+            result.env = QProcessEnvironment::systemEnvironment().toStringList();
+            result.env += "XRAY_LOCATION_ASSET=" + geoipDir;
+
             auto outbound = coreR.outbound;
             if (mapping_port > 0) {
                 setOutboundServerAndPort(outbound, "127.0.0.1", mapping_port);
@@ -89,6 +114,21 @@ namespace NekoGui_fmt {
                 {"log", QJsonObject{{"loglevel", NekoGui::dataStore->log_level}}},
                 {"inbounds", QJsonArray{inbound}},
                 {"outbounds", QJsonArray{outbound}},
+                {"routing", QJsonObject{
+                                {"domainStrategy", "AsIs"},
+                                {"rules", QJsonArray{
+                                              QJsonObject{
+                                                  {"type", "field"},
+                                                  {"domain", QJsonArray{"geosite:cn"}},
+                                                  {"outboundTag", "proxy"},
+                                              },
+                                              QJsonObject{
+                                                  {"type", "field"},
+                                                  {"ip", QJsonArray{"geoip:cn"}},
+                                                  {"outboundTag", "proxy"},
+                                              },
+                                          }},
+                            }},
             };
 
             result.config_export = QJsonObject2QString(config, false);

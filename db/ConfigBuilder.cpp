@@ -4,6 +4,7 @@
 #include "fmt/Preset.hpp"
 
 #include <QApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 
@@ -477,29 +478,97 @@ namespace NekoGui {
             IP_USER_RULE
         }
 
+        // sing-box geo rule-set resources
+        QJsonArray routeRuleSet;
+        QSet<QString> routeRuleSetTagSet;
+        QMap<QString, QString> geoipRuleSetByAlias;
+        QMap<QString, QString> geositeRuleSetByAlias;
+
+        auto addRuleSetAlias = [&](QMap<QString, QString> &mapping, const QString &aliasRaw, const QString &tag) {
+            auto alias = aliasRaw.trimmed().toLower();
+            if (alias.isEmpty()) return;
+            if (!mapping.contains(alias)) {
+                mapping.insert(alias, tag);
+            }
+        };
+
+        auto loadRuleSetFolder = [&](const QString &folderName, const QString &prefix, QMap<QString, QString> &mapping) {
+            QDir folder(QApplication::applicationDirPath() + "/" + folderName);
+            if (!folder.exists()) {
+                status->result->error = folderName + " folder not found";
+                return false;
+            }
+
+            auto files = folder.entryInfoList(QStringList{"*.srs"}, QDir::Files | QDir::Readable, QDir::Name);
+            if (files.isEmpty()) {
+                status->result->error = folderName + " folder is empty";
+                return false;
+            }
+
+            for (const auto &file: files) {
+                auto base = file.completeBaseName().trimmed();
+                if (base.isEmpty()) continue;
+
+                auto tag = base;
+                if (!tag.startsWith(prefix + "-")) tag = prefix + "-" + tag;
+                auto uniqueTag = tag;
+                int suffix = 2;
+                while (routeRuleSetTagSet.contains(uniqueTag)) {
+                    uniqueTag = tag + "-" + Int2String(suffix);
+                    suffix++;
+                }
+                routeRuleSetTagSet.insert(uniqueTag);
+                routeRuleSet += QJsonObject{
+                    {"type", "local"},
+                    {"tag", uniqueTag},
+                    {"path", file.absoluteFilePath()},
+                };
+
+                addRuleSetAlias(mapping, base, uniqueTag);
+                if (base.startsWith(prefix + "-")) {
+                    addRuleSetAlias(mapping, base.mid(prefix.length() + 1), uniqueTag);
+                }
+            }
+            return true;
+        };
+
+        if (!loadRuleSetFolder("rule-set-geoip", "geoip", geoipRuleSetByAlias)) return;
+        if (!loadRuleSetFolder("rule-set-geosite", "geosite", geositeRuleSetByAlias)) return;
+
         // sing-box common rule object
         auto make_rule = [&](const QStringList &list, bool isIP = false) {
             QJsonObject rule;
             //
             QJsonArray ip_cidr;
-            QJsonArray geoip;
+            QJsonArray rule_set;
             //
             QJsonArray domain_keyword;
             QJsonArray domain_subdomain;
             QJsonArray domain_regexp;
             QJsonArray domain_full;
-            QJsonArray geosite;
             for (auto item: list) {
                 if (isIP) {
                     if (item.startsWith("geoip:")) {
-                        geoip += item.replace("geoip:", "");
+                        auto geoipName = item.replace("geoip:", "").trimmed().toLower();
+                        auto tag = geoipRuleSetByAlias.value(geoipName);
+                        if (tag.isEmpty()) {
+                            status->result->error = "geoip srs not found: " + geoipName;
+                            return QJsonObject{};
+                        }
+                        rule_set += tag;
                     } else {
                         ip_cidr += item;
                     }
                 } else {
                     // https://www.v2fly.org/config/dns.html#dnsobject
                     if (item.startsWith("geosite:")) {
-                        geosite += item.replace("geosite:", "");
+                        auto geositeName = item.replace("geosite:", "").trimmed().toLower();
+                        auto tag = geositeRuleSetByAlias.value(geositeName);
+                        if (tag.isEmpty()) {
+                            status->result->error = "geosite srs not found: " + geositeName;
+                            return QJsonObject{};
+                        }
+                        rule_set += tag;
                     } else if (item.startsWith("full:")) {
                         domain_full += item.replace("full:", "").toLower();
                     } else if (item.startsWith("domain:")) {
@@ -514,18 +583,18 @@ namespace NekoGui {
                 }
             }
             if (isIP) {
-                if (ip_cidr.isEmpty() && geoip.isEmpty()) return rule;
+                if (ip_cidr.isEmpty() && rule_set.isEmpty()) return rule;
                 rule["ip_cidr"] = ip_cidr;
-                rule["geoip"] = geoip;
+                rule["rule_set"] = rule_set;
             } else {
-                if (domain_keyword.isEmpty() && domain_subdomain.isEmpty() && domain_regexp.isEmpty() && domain_full.isEmpty() && geosite.isEmpty()) {
+                if (domain_keyword.isEmpty() && domain_subdomain.isEmpty() && domain_regexp.isEmpty() && domain_full.isEmpty() && rule_set.isEmpty()) {
                     return rule;
                 }
                 rule["domain"] = domain_full;
                 rule["domain_suffix"] = domain_subdomain; // v2ray Subdomain => sing-box suffix
                 rule["domain_keyword"] = domain_keyword;
                 rule["domain_regex"] = domain_regexp;
-                rule["geosite"] = geosite;
+                rule["rule_set"] = rule_set;
             }
             return rule;
         };
@@ -593,12 +662,15 @@ namespace NekoGui {
         // sing-box dns rule object
         auto add_rule_dns = [&](const QStringList &list, const QString &server) {
             auto rule = make_rule(list, false);
+            if (!status->result->error.isEmpty()) return;
             if (rule.isEmpty()) return;
             rule["server"] = server;
             dnsRules += rule;
         };
         add_rule_dns(status->domainListDNSRemote, "dns-remote");
+        if (!status->result->error.isEmpty()) return;
         add_rule_dns(status->domainListDNSDirect, "dns-direct");
+        if (!status->result->error.isEmpty()) return;
 
         // built-in rules
         if (!status->forTest) {
@@ -642,6 +714,7 @@ namespace NekoGui {
         // sing-box routing rule object
         auto add_rule_route = [&](const QStringList &list, bool isIP, const QString &out) {
             auto rule = make_rule(list, isIP);
+            if (!status->result->error.isEmpty()) return;
             if (rule.isEmpty()) return;
             rule["outbound"] = out;
             status->routingRules += rule;
@@ -649,11 +722,17 @@ namespace NekoGui {
 
         // final add user rule
         add_rule_route(status->domainListBlock, false, "block");
+        if (!status->result->error.isEmpty()) return;
         add_rule_route(status->domainListRemote, false, tagProxy);
+        if (!status->result->error.isEmpty()) return;
         add_rule_route(status->domainListDirect, false, "bypass");
+        if (!status->result->error.isEmpty()) return;
         add_rule_route(status->ipListBlock, true, "block");
+        if (!status->result->error.isEmpty()) return;
         add_rule_route(status->ipListRemote, true, tagProxy);
+        if (!status->result->error.isEmpty()) return;
         add_rule_route(status->ipListDirect, true, "bypass");
+        if (!status->result->error.isEmpty()) return;
 
         // built-in rules
         status->routingRules += QJsonObject{
@@ -698,12 +777,6 @@ namespace NekoGui {
             }
         }
 
-        // geopath
-        auto geoip = FindCoreAsset("geoip.db");
-        auto geosite = FindCoreAsset("geosite.db");
-        if (geoip.isEmpty()) status->result->error = +"geoip.db not found";
-        if (geosite.isEmpty()) status->result->error = +"geosite.db not found";
-
         // final add routing rule
         auto routingRules = QString2QJsonObject(dataStore->routing->custom)["rules"].toArray();
         if (status->forTest) routingRules = {};
@@ -712,22 +785,11 @@ namespace NekoGui {
         auto routeObj = QJsonObject{
             {"rules", routingRules},
             {"auto_detect_interface", dataStore->spmode_vpn}, // TODO force enable?
-            {
-                "geoip",
-                QJsonObject{
-                    {"path", geoip},
-                },
-            },
-            {
-                "geosite",
-                QJsonObject{
-                    {"path", geosite},
-                },
-            }};
+            {"rule_set", routeRuleSet},
+        };
         if (!status->forTest) routeObj["final"] = dataStore->routing->def_outbound;
         if (status->forExport) {
-            routeObj.remove("geoip");
-            routeObj.remove("geosite");
+            routeObj.remove("rule_set");
             routeObj.remove("auto_detect_interface");
         }
         status->result->coreConfig.insert("route", routeObj);

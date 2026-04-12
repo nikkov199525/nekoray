@@ -189,6 +189,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->tableWidget_conn->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     ui->tableWidget_conn->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     ui->proxyListTable->verticalHeader()->setDefaultSectionSize(24);
+    // Let Tab / Shift+Tab move focus out of the table instead of navigating cells.
+    ui->proxyListTable->setTabKeyNavigation(false);
 
     // search box
     ui->search->setVisible(false);
