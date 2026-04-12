@@ -11,6 +11,7 @@ namespace NekoGui_fmt {
         // ws/http/grpc/tcp-http/httpupgrade
         QString path = "";
         QString host = "";
+        QString xhttp_mode = "";
         // kcp/quic/tcp-http
         QString header_type = "";
         // tls
@@ -35,6 +36,7 @@ namespace NekoGui_fmt {
             _add(new configItem("pac_enc", &packet_encoding, itemType::string));
             _add(new configItem("path", &path, itemType::string));
             _add(new configItem("host", &host, itemType::string));
+            _add(new configItem("xhttp_mode", &xhttp_mode, itemType::string));
             _add(new configItem("sni", &sni, itemType::string));
             _add(new configItem("alpn", &alpn, itemType::string));
             _add(new configItem("cert", &certificate, itemType::string));
@@ -49,7 +51,14 @@ namespace NekoGui_fmt {
             _add(new configItem("mux_s", &multiplex_status, itemType::integer));
         }
 
+        [[nodiscard]] bool NeedXrayCore() const {
+            auto net = network.trimmed().toLower();
+            return net == "xhttp" || net == "splithttp";
+        }
+
         void BuildStreamSettingsSingBox(QJsonObject *outbound);
+
+        QJsonObject BuildStreamSettingsV2Ray();
     };
 
     inline V2rayStreamSettings *GetStreamSettings(AbstractBean *bean) {

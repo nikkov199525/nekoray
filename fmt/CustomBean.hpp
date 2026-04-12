@@ -48,5 +48,7 @@ namespace NekoGui_fmt {
         ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) override;
 
         CoreObjOutboundBuildResult BuildCoreObjSingBox() override;
+
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray() override;
     };
 } // namespace NekoGui_fmt

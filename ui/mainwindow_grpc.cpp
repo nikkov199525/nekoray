@@ -14,6 +14,8 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QDialogButtonBox>
+#include <QFile>
+#include <QDir>
 
 // ext core
 
@@ -33,6 +35,51 @@ std::list<std::shared_ptr<NekoGui_sys::ExternalProcess>> CreateExtCFromExtR(cons
     return l;
 }
 
+#ifdef NKR_NO_GRPC
+static std::shared_ptr<NekoGui_fmt::ExternalBuildResult> BuildInternalCoreRunner(const QJsonObject &coreConfig, const QStringList &statsOutbounds) {
+    auto extR = std::make_shared<NekoGui_fmt::ExternalBuildResult>();
+    extR->tag = "internal-core";
+
+#ifdef Q_OS_WIN
+    auto corePath = NekoGui::FindCoreAsset("nekobox_core.exe");
+#else
+    auto corePath = NekoGui::FindCoreAsset("nekobox_core");
+#endif
+    if (corePath.isEmpty()) {
+        extR->error = "nekobox_core not found";
+        return extR;
+    }
+    extR->program = corePath;
+
+    auto tempDirPath = QApplication::applicationDirPath() + "/config/temp";
+    QDir tempDir(tempDirPath);
+    if (!tempDir.exists() && !tempDir.mkpath(".")) {
+        extR->error = "cannot create temp config directory: " + tempDirPath;
+        return extR;
+    }
+
+    auto cfgPath = tempDir.absoluteFilePath("core_" + GetRandomString(10) + ".json");
+    QFile cfgFile(cfgPath);
+    if (!cfgFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        extR->error = "cannot write core config: " + cfgPath;
+        return extR;
+    }
+    auto cfgText = QJsonObject2QString(coreConfig, false).toUtf8();
+    cfgFile.write(cfgText);
+    cfgFile.close();
+
+    auto statsPath = tempDir.absoluteFilePath("core_stats_" + GetRandomString(10) + ".json");
+    extR->stats_file = statsPath;
+
+    extR->arguments = QStringList{"run", "-c", cfgPath, "--disable-color", "--stats-file", statsPath};
+    if (!statsOutbounds.isEmpty()) {
+        extR->arguments << "--stats-outbounds" << statsOutbounds.join(",");
+    }
+    extR->config_export = QJsonObject2QString(coreConfig, false);
+    return extR;
+}
+#endif
+
 // grpc
 
 #ifndef NKR_NO_GRPC
@@ -48,9 +95,12 @@ void MainWindow::setup_grpc() {
         },
         "127.0.0.1:" + Int2String(NekoGui::dataStore->core_port), NekoGui::dataStore->core_token);
 
-    // Looper
-    runOnNewThread([=] { NekoGui_traffic::trafficLooper->Loop(); });
 #endif
+    static bool trafficLooperStarted = false;
+    if (!trafficLooperStarted) {
+        trafficLooperStarted = true;
+        runOnNewThread([=] { NekoGui_traffic::trafficLooper->Loop(); });
+    }
 }
 
 // 测速
@@ -278,8 +328,25 @@ void MainWindow::speedtest_current() {
 
 void MainWindow::stop_core_daemon() {
 #ifndef NKR_NO_GRPC
-    NekoGui_rpc::defaultClient->Exit();
+    if (NekoGui_rpc::defaultClient != nullptr) {
+        NekoGui_rpc::defaultClient->Exit();
+    }
 #endif
+
+    auto mw = GetMainWindow();
+    if (mw == nullptr || mw->core_process == nullptr) return;
+
+    QSemaphore sem;
+    runOnUiThread(
+        [&]() {
+            if (mw->core_process->state() != QProcess::NotRunning) {
+                mw->core_process->kill();
+                mw->core_process->waitForFinished(1500);
+            }
+            sem.release();
+        },
+        DS_cores);
+    sem.acquire();
 }
 
 void MainWindow::neko_start(int _id) {
@@ -323,12 +390,29 @@ void MainWindow::neko_start(int _id) {
         } else if (!rpcOK) {
             return false;
         }
-        //
+#else
+        QStringList statsOutbounds;
+        for (const auto &item: result->outboundStats) {
+            if (item == nullptr || item->tag.empty()) continue;
+            auto tag = QString::fromStdString(item->tag);
+            if (!statsOutbounds.contains(tag)) statsOutbounds << tag;
+        }
+        if (!statsOutbounds.contains("proxy")) statsOutbounds << "proxy";
+        if (!statsOutbounds.contains("bypass")) statsOutbounds << "bypass";
+
+        auto internalCore = BuildInternalCoreRunner(result->coreConfig, statsOutbounds);
+        if (!internalCore->error.isEmpty()) {
+            runOnUiThread([=] { MessageBoxWarning("Core start error", internalCore->error); });
+            return false;
+        }
+        result->extRs.push_front(internalCore);
+        NekoGui_traffic::trafficLooper->SetNoGrpcStatsFile(internalCore->stats_file);
+#endif
+
         NekoGui_traffic::trafficLooper->proxy = result->outboundStat.get();
         NekoGui_traffic::trafficLooper->items = result->outboundStats;
         NekoGui::dataStore->ignoreConnTag = result->ignoreConnTag;
         NekoGui_traffic::trafficLooper->loop_enabled = true;
-#endif
 
         runOnUiThread(
             [=] {
@@ -360,6 +444,7 @@ void MainWindow::neko_start(int _id) {
     mu_stopping.unlock();
 
     // check core state
+#ifndef NKR_NO_GRPC
     if (!NekoGui::dataStore->core_running) {
         runOnUiThread(
             [=] {
@@ -371,6 +456,7 @@ void MainWindow::neko_start(int _id) {
         mu_starting.unlock();
         return; // let CoreProcess call neko_start when core is up
     }
+#endif
 
     // timeout message
     auto restartMsgbox = new QMessageBox(QMessageBox::Question, software_name, tr("If there is no response for a long time, it is recommended to restart the software."),
@@ -423,7 +509,6 @@ void MainWindow::neko_stop(bool crash, bool sem) {
             },
             DS_cores);
 
-#ifndef NKR_NO_GRPC
         NekoGui_traffic::trafficLooper->loop_enabled = false;
         NekoGui_traffic::trafficLooper->loop_mutex.lock();
         if (NekoGui::dataStore->traffic_loop_interval != 0) {
@@ -435,6 +520,9 @@ void MainWindow::neko_stop(bool crash, bool sem) {
         }
         NekoGui_traffic::trafficLooper->loop_mutex.unlock();
 
+#ifdef NKR_NO_GRPC
+        NekoGui_traffic::trafficLooper->SetNoGrpcStatsFile("");
+#else
         if (!crash) {
             bool rpcOK;
             QString error = defaultClient->Stop(&rpcOK);

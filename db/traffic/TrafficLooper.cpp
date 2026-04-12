@@ -8,11 +8,26 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QElapsedTimer>
+#include <QFile>
 
 namespace NekoGui_traffic {
 
     TrafficLooper *trafficLooper = new TrafficLooper;
     QElapsedTimer elapsedTimer;
+
+    void TrafficLooper::SetNoGrpcStatsFile(const QString &path) {
+#ifdef NKR_NO_GRPC
+        if (no_grpc_stats_file != path) {
+            no_grpc_last_totals.clear();
+        }
+        no_grpc_stats_file = path;
+        if (no_grpc_stats_file.isEmpty()) {
+            no_grpc_last_totals.clear();
+        }
+#else
+        Q_UNUSED(path)
+#endif
+    }
 
     TrafficData *TrafficLooper::update_stats(TrafficData *item) {
 #ifndef NKR_NO_GRPC
@@ -54,6 +69,46 @@ namespace NekoGui_traffic {
     }
 
     void TrafficLooper::UpdateAll() {
+#ifdef NKR_NO_GRPC
+        if (no_grpc_stats_file.isEmpty()) return;
+
+        QFile statsFile(no_grpc_stats_file);
+        if (!statsFile.open(QIODevice::ReadOnly)) return;
+        auto doc = QJsonDocument::fromJson(statsFile.readAll());
+        statsFile.close();
+        if (!doc.isObject()) return;
+        auto root = doc.object();
+
+        auto toI64 = [](const QJsonObject &obj, const char *key) -> long long {
+            return obj.value(key).toVariant().toLongLong();
+        };
+        auto apply = [&](TrafficData *data) {
+            auto tag = QString::fromStdString(data->tag);
+            if (!root.contains(tag)) return;
+            auto obj = root.value(tag).toObject();
+            if (obj.isEmpty()) return;
+
+            auto absUplink = toI64(obj, "uplink");
+            auto absDownlink = toI64(obj, "downlink");
+            auto prev = no_grpc_last_totals.value(tag, qMakePair(0LL, 0LL));
+
+            auto diffUplink = absUplink >= prev.first ? absUplink - prev.first : absUplink;
+            auto diffDownlink = absDownlink >= prev.second ? absDownlink - prev.second : absDownlink;
+
+            data->uplink += diffUplink;
+            data->downlink += diffDownlink;
+            data->uplink_rate = toI64(obj, "uplink_rate");
+            data->downlink_rate = toI64(obj, "downlink_rate");
+            no_grpc_last_totals.insert(tag, qMakePair(absUplink, absDownlink));
+        };
+
+        for (const auto &item: this->items) {
+            if (item == nullptr) continue;
+            apply(item.get());
+        }
+        apply(bypass);
+        return;
+#endif
         std::map<std::string, TrafficData *> updated; // tag to diff
         for (const auto &item: this->items) {
             auto data = item.get();

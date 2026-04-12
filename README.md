@@ -1,10 +1,10 @@
-# NekoBox For PC
+# NekoRay Fork For PC
 
-Qt based cross-platform GUI proxy configuration manager (backend: sing-box)
+Qt based cross-platform GUI proxy configuration manager (backend: Xray)
 
 Support Windows / Linux out of the box now.
 
-基于 Qt 的跨平台代理配置管理器 (后端 sing-box)
+基于 Qt 的跨平台代理配置管理器 (后端 Xray)
 
 目前支持 Windows / Linux 开箱即用
 
@@ -52,9 +52,9 @@ https://matsuridayo.github.io
 - VMess
 - VLESS
 - Trojan
-- TUIC ( sing-box )
+- TUIC ( External Core )
 - NaïveProxy ( Custom Core )
-- Hysteria2 ( Custom Core or sing-box )
+- Hysteria2 ( Custom Core / External Core )
 - Custom Outbound
 - Custom Config
 - Custom Core
@@ -103,10 +103,8 @@ Core:
 - [v2fly/v2ray-core](https://github.com/v2fly/v2ray-core) ( < 3.10 )
 - [MatsuriDayo/Matsuri](https://github.com/MatsuriDayo/Matsuri) ( < 3.10 )
 - [MatsuriDayo/v2ray-core](https://github.com/MatsuriDayo/v2ray-core) ( < 3.10 )
-- [XTLS/Xray-core](https://github.com/XTLS/Xray-core) ( 3.10 <= Version <= 3.26 )
-- [MatsuriDayo/Xray-core](https://github.com/MatsuriDayo/Xray-core) ( 3.10 <= Version <= 3.26 )
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-- [Matsuridayo/sing-box-extra](https://github.com/MatsuriDayo/sing-box-extra)
+- [XTLS/Xray-core](https://github.com/XTLS/Xray-core) (main backend for this fork)
+- [MatsuriDayo/libneko](https://github.com/MatsuriDayo/libneko)
 
 Gui:
 

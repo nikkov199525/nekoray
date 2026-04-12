@@ -20,6 +20,84 @@
     auto TempFile = QFileInfo(f).absoluteFilePath();
 
 namespace NekoGui_fmt {
+    namespace {
+        QString resolveProgramWithFallback(const QString &coreName) {
+            auto configured = NekoGui::dataStore->extraCore->Get(coreName).trimmed();
+            if (!configured.isEmpty()) return configured;
+#ifdef Q_OS_WIN
+            auto appCore = NekoGui::FindCoreAsset(coreName + ".exe");
+#else
+            auto appCore = NekoGui::FindCoreAsset(coreName);
+#endif
+            if (!appCore.isEmpty()) return appCore;
+            return coreName;
+        }
+
+        void setOutboundServerAndPort(QJsonObject &outbound, const QString &address, int port) {
+            auto settings = outbound["settings"].toObject();
+            if (settings.isEmpty()) return;
+
+            auto vnext = settings["vnext"].toArray();
+            if (!vnext.isEmpty()) {
+                auto first = vnext.at(0).toObject();
+                first["address"] = address;
+                first["port"] = port;
+                vnext[0] = first;
+                settings["vnext"] = vnext;
+                outbound["settings"] = settings;
+                return;
+            }
+
+            auto servers = settings["servers"].toArray();
+            if (!servers.isEmpty()) {
+                auto first = servers.at(0).toObject();
+                first["address"] = address;
+                first["port"] = port;
+                servers[0] = first;
+                settings["servers"] = servers;
+                outbound["settings"] = settings;
+            }
+        }
+
+        ExternalBuildResult buildXrayExternal(const CoreObjOutboundBuildResult &coreR, int mapping_port, int socks_port) {
+            ExternalBuildResult result{resolveProgramWithFallback("xray")};
+
+            if (!coreR.error.isEmpty()) {
+                result.error = coreR.error;
+                return result;
+            }
+            if (coreR.outbound.isEmpty()) {
+                result.error = "unsupported outbound";
+                return result;
+            }
+
+            auto outbound = coreR.outbound;
+            if (mapping_port > 0) {
+                setOutboundServerAndPort(outbound, "127.0.0.1", mapping_port);
+            }
+            outbound["tag"] = "proxy";
+
+            QJsonObject inbound{
+                {"tag", "socks-in"},
+                {"protocol", "socks"},
+                {"listen", "127.0.0.1"},
+                {"port", socks_port},
+                {"settings", QJsonObject{{"udp", true}}},
+            };
+
+            QJsonObject config{
+                {"log", QJsonObject{{"loglevel", NekoGui::dataStore->log_level}}},
+                {"inbounds", QJsonArray{inbound}},
+                {"outbounds", QJsonArray{outbound}},
+            };
+
+            result.config_export = QJsonObject2QString(config, false);
+            WriteTempFile("xray_" + GetRandomString(10) + ".json", result.config_export.toUtf8());
+            result.arguments = QStringList{"run", "-c", TempFile};
+            return result;
+        }
+    } // namespace
+
     // -1: Cannot use this config
     // 0: Internal
     // 1: Mapping External
@@ -62,6 +140,18 @@ namespace NekoGui_fmt {
     int CustomBean::NeedExternal(bool isFirstProfile) {
         if (core == "internal" || core == "internal-full") return 0;
         return 1;
+    }
+
+    int VMessBean::NeedExternal(bool isFirstProfile) {
+        Q_UNUSED(isFirstProfile)
+        if (stream->NeedXrayCore()) return 1;
+        return 0;
+    }
+
+    int TrojanVLESSBean::NeedExternal(bool isFirstProfile) {
+        Q_UNUSED(isFirstProfile)
+        if (stream->NeedXrayCore()) return 1;
+        return 0;
     }
 
     ExternalBuildResult NaiveBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
@@ -260,6 +350,16 @@ namespace NekoGui_fmt {
         }
 
         return result;
+    }
+
+    ExternalBuildResult VMessBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
+        Q_UNUSED(external_stat)
+        return buildXrayExternal(BuildCoreObjV2Ray(), mapping_port, socks_port);
+    }
+
+    ExternalBuildResult TrojanVLESSBean::BuildExternal(int mapping_port, int socks_port, int external_stat) {
+        Q_UNUSED(external_stat)
+        return buildXrayExternal(BuildCoreObjV2Ray(), mapping_port, socks_port);
     }
 
 } // namespace NekoGui_fmt

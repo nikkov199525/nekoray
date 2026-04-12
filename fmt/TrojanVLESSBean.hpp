@@ -24,7 +24,15 @@ namespace NekoGui_fmt {
 
         QString DisplayType() override { return proxy_type == proxy_VLESS ? "VLESS" : "Trojan"; };
 
+        QString DisplayCoreType() override { return NeedExternal(true) == 0 ? software_core_name : "xray"; };
+
+        int NeedExternal(bool isFirstProfile) override;
+
+        ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) override;
+
         CoreObjOutboundBuildResult BuildCoreObjSingBox() override;
+
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray() override;
 
         bool TryParseLink(const QString &link);
 

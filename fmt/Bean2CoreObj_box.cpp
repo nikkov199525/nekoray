@@ -198,8 +198,12 @@ namespace NekoGui_fmt {
             outbound["down_mbps"] = downloadMbps;
 
             if (!hopPort.trimmed().isEmpty()) {
+                // sing-box >= 1.11 uses server_ports/hop_interval for Hysteria2 port hopping.
+                outbound.remove("server_port");
+                outbound["server_ports"] = hopPort;
+                outbound["hop_interval"] = QString::number(hopInterval) + "s";
+                // Backward compatibility for older sing-box cores.
                 outbound["hop_ports"] = hopPort;
-                outbound["hop_interval"] = hopInterval;
             }
             if (!obfsPassword.isEmpty()) {
                 outbound["obfs"] = QJsonObject{

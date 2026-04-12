@@ -28,6 +28,8 @@ namespace NekoGui_fmt {
 
         CoreObjOutboundBuildResult BuildCoreObjSingBox() override;
 
+        CoreObjOutboundBuildResult BuildCoreObjV2Ray() override;
+
         bool TryParseLink(const QString &link);
 
         QString ToShareLink() override;

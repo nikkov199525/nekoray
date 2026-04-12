@@ -361,6 +361,11 @@ namespace NekoGui {
 
             // apply custom outbound settings
             MergeJson(outbound, QString2QJsonObject(ent->bean->custom_outbound));
+            // Safety: `flow` is valid only for VLESS outbound. Some legacy/custom
+            // fields may leak into external socks outbounds and break sing-box parse.
+            if (outbound["type"].toString() != "vless") {
+                outbound.remove("flow");
+            }
 
             // Bypass Lookup for the first profile
             auto serverAddress = ent->bean->serverAddress;

@@ -95,12 +95,11 @@ namespace NekoGui_sys {
         });
         connect(this, &QProcess::readyReadStandardError, this, [&]() {
             auto log = readAllStandardError().trimmed();
-            if (show_stderr) {
-                MW_show_log(log);
-                return;
-            }
             if (log.contains("token is set")) {
                 show_stderr = true;
+            }
+            if (show_stderr) {
+                MW_show_log(log);
             }
         });
         connect(this, &QProcess::errorOccurred, this, [&](QProcess::ProcessError error) {
@@ -140,9 +139,10 @@ namespace NekoGui_sys {
     }
 
     void CoreProcess::Start() {
-        show_stderr = false;
+        show_stderr = true;
         // cwd: same as GUI, at ./config
         ExternalProcess::Start();
+        // Backward compatibility: some historical cores still read token from stdin.
         write((NekoGui::dataStore->core_token + "\n").toUtf8());
     }
 

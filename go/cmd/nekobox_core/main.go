@@ -3,17 +3,17 @@ package main
 import (
 	"fmt"
 	"os"
-	_ "unsafe"
 
 	"grpc_server"
 
 	"github.com/matsuridayo/libneko/neko_common"
-	boxmain "github.com/sagernet/sing-box/cmd/sing-box"
 	"github.com/sagernet/sing-box/constant"
 )
 
 func main() {
-	fmt.Println("sing-box:", constant.Version, "NekoBox:", neko_common.Version_neko)
+	enableLegacyConfigCompatibility()
+
+	fmt.Println("sing-box:", constant.Version, "NekoRay:", neko_common.Version_neko)
 	fmt.Println()
 
 	// nekobox_core
@@ -23,6 +23,8 @@ func main() {
 		return
 	}
 
-	// sing-box
-	boxmain.Main()
+	if err := runSingBoxCommand(os.Args[1:]); err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
 }

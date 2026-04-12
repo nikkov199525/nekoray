@@ -3,26 +3,24 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"grpc_server"
 	"grpc_server/gen"
 
 	"github.com/matsuridayo/libneko/neko_common"
-	"github.com/matsuridayo/libneko/neko_log"
 	"github.com/matsuridayo/libneko/speedtest"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/boxapi"
-	boxmain "github.com/sagernet/sing-box/cmd/sing-box"
+	"github.com/sagernet/sing-box/option"
 
 	"log"
-
-	"github.com/sagernet/sing-box/option"
 )
 
 type server struct {
 	grpc_server.BaseServer
 }
+
+var statsServer *boxapi.SbV2rayServer
 
 func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.ErrorResp, _ error) {
 	var err error
@@ -30,8 +28,11 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 	defer func() {
 		out = &gen.ErrorResp{}
 		if err != nil {
+			log.Println("grpc Start failed:", err)
 			out.Error = err.Error()
 			instance = nil
+		} else {
+			log.Println("grpc Start success")
 		}
 	}()
 
@@ -44,20 +45,15 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 		return
 	}
 
-	instance, instance_cancel, err = boxmain.Create([]byte(in.CoreConfig))
-
-	if instance != nil {
-		// Logger
-		instance.SetLogWritter(neko_log.LogWriter)
-		// V2ray Service
-		if in.StatsOutbounds != nil {
-			instance.Router().SetV2RayServer(boxapi.NewSbV2rayServer(option.V2RayStatsServiceOptions{
-				Enabled:   true,
-				Outbounds: in.StatsOutbounds,
-			}))
-		}
+	log.Println("grpc Start requested")
+	instance, instance_cancel, err = createAndStartBox([]byte(in.CoreConfig), true)
+	if err == nil && instance != nil && len(in.StatsOutbounds) > 0 {
+		statsServer = boxapi.NewSbV2rayServer(option.V2RayStatsServiceOptions{
+			Enabled:   true,
+			Outbounds: in.StatsOutbounds,
+		})
+		instance.Router().AppendTracker(statsServer.StatsService())
 	}
-
 	return
 }
 
@@ -67,7 +63,10 @@ func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (out *gen.ErrorResp
 	defer func() {
 		out = &gen.ErrorResp{}
 		if err != nil {
+			log.Println("grpc Stop failed:", err)
 			out.Error = err.Error()
+		} else {
+			log.Println("grpc Stop success")
 		}
 	}()
 
@@ -75,11 +74,11 @@ func (s *server) Stop(ctx context.Context, in *gen.EmptyReq) (out *gen.ErrorResp
 		return
 	}
 
+	log.Println("grpc Stop requested")
 	instance_cancel()
-	instance.Close()
-
+	_ = instance.Close()
 	instance = nil
-
+	statsServer = nil
 	return
 }
 
@@ -97,8 +96,7 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 		var i *box.Box
 		var cancel context.CancelFunc
 		if in.Config != nil {
-			// Test instance
-			i, cancel, err = boxmain.Create([]byte(in.Config.CoreConfig))
+			i, cancel, err = createAndStartBox([]byte(in.Config.CoreConfig), true)
 			if i != nil {
 				defer i.Close()
 				defer cancel()
@@ -107,18 +105,17 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 				return
 			}
 		} else {
-			// Test running instance
 			i = instance
 			if i == nil {
 				return
 			}
 		}
-		// Latency
-		out.Ms, err = speedtest.UrlTest(boxapi.CreateProxyHttpClient(i), in.Url, in.Timeout, speedtest.UrlTestStandard_RTT)
+		out.Ms, err = speedtest.UrlTest(boxapi.CreateProxyHttpClient(i, nil), in.Url, in.Timeout, speedtest.UrlTestStandard_RTT)
 	} else if in.Mode == gen.TestMode_TcpPing {
 		out.Ms, err = speedtest.TcpPing(in.Address, in.Timeout)
 	} else if in.Mode == gen.TestMode_FullTest {
-		i, cancel, err := boxmain.Create([]byte(in.Config.CoreConfig))
+		i, cancel, e := createAndStartBox([]byte(in.Config.CoreConfig), true)
+		err = e
 		if i != nil {
 			defer i.Close()
 			defer cancel()
@@ -134,13 +131,9 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 
 func (s *server) QueryStats(ctx context.Context, in *gen.QueryStatsReq) (out *gen.QueryStatsResp, _ error) {
 	out = &gen.QueryStatsResp{}
-
-	if instance != nil {
-		if ss, ok := instance.Router().V2RayServer().(*boxapi.SbV2rayServer); ok {
-			out.Traffic = ss.QueryStats(fmt.Sprintf("outbound>>>%s>>>traffic>>>%s", in.Tag, in.Direct))
-		}
+	if statsServer != nil {
+		out.Traffic = statsServer.QueryStats("outbound>>>" + in.Tag + ">>>traffic>>>" + in.Direct)
 	}
-
 	return
 }
 

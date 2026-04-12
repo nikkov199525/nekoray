@@ -84,9 +84,10 @@ namespace NekoGui_fmt {
         if (stream->network == "ws") {
             stream->path = GetQueryValue(query, "path", "");
             stream->host = GetQueryValue(query, "host", "");
-        } else if (stream->network == "http") {
+        } else if (stream->network == "http" || stream->network == "xhttp" || stream->network == "splithttp") {
             stream->path = GetQueryValue(query, "path", "");
             stream->host = GetQueryValue(query, "host", "").replace("|", ",");
+            stream->xhttp_mode = GetQueryValue(query, "mode", "");
         } else if (stream->network == "httpupgrade") {
             stream->path = GetQueryValue(query, "path", "");
             stream->host = GetQueryValue(query, "host", "");
@@ -214,9 +215,10 @@ namespace NekoGui_fmt {
             if (stream->network == "ws") {
                 stream->path = GetQueryValue(query, "path", "");
                 stream->host = GetQueryValue(query, "host", "");
-            } else if (stream->network == "http") {
+            } else if (stream->network == "http" || stream->network == "xhttp" || stream->network == "splithttp") {
                 stream->path = GetQueryValue(query, "path", "");
                 stream->host = GetQueryValue(query, "host", "").replace("|", ",");
+                stream->xhttp_mode = GetQueryValue(query, "mode", "");
             } else if (stream->network == "httpupgrade") {
                 stream->path = GetQueryValue(query, "path", "");
                 stream->host = GetQueryValue(query, "host", "");

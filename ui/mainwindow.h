@@ -141,7 +141,7 @@ private:
     QShortcut *shortcut_ctrl_f = new QShortcut(QKeySequence("Ctrl+F"), this);
     QShortcut *shortcut_esc = new QShortcut(QKeySequence("Esc"), this);
     //
-    NekoGui_sys::CoreProcess *core_process;
+    NekoGui_sys::CoreProcess *core_process = nullptr;
     qint64 vpn_pid = 0;
     //
     bool qvLogAutoScoll = true;

@@ -377,21 +377,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             auto ent = selected.first();
             name = ent->bean->DisplayCoreType();
         }
-        ui->menu_export_config->setVisible(name == software_core_name);
+        ui->menu_export_config->setVisible(name == software_core_name || name == "xray");
         ui->menu_export_config->setText(tr("Export %1 config").arg(name));
     });
     refresh_status();
 
     // Prepare core
+#ifndef NKR_NO_GRPC
     NekoGui::dataStore->core_token = GetRandomString(32);
     NekoGui::dataStore->core_port = MkPort();
     if (NekoGui::dataStore->core_port <= 0) NekoGui::dataStore->core_port = 19810;
 
     auto core_path = QApplication::applicationDirPath() + "/";
+#ifdef Q_OS_WIN
+    core_path += "nekobox_core.exe";
+#else
     core_path += "nekobox_core";
+#endif
 
     QStringList args;
     args.push_back("nekobox");
+    args.push_back("-token");
+    args.push_back(NekoGui::dataStore->core_token);
     args.push_back("-port");
     args.push_back(Int2String(NekoGui::dataStore->core_port));
     if (NekoGui::dataStore->flag_debug) args.push_back("-debug");
@@ -409,6 +416,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             setup_grpc();
         },
         DS_cores);
+#else
+    setup_grpc();
+#endif
 
     // Remember system proxy
     if (NekoGui::dataStore->remember_enable || NekoGui::dataStore->flag_restart_tun_on) {

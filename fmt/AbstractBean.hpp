@@ -22,6 +22,7 @@ namespace NekoGui_fmt {
         //
         QString error;
         QString config_export;
+        QString stats_file;
     };
 
     class AbstractBean : public JsonStore {
@@ -60,6 +61,8 @@ namespace NekoGui_fmt {
         virtual int NeedExternal(bool isFirstProfile) { return 0; };
 
         virtual CoreObjOutboundBuildResult BuildCoreObjSingBox() { return {}; };
+
+        virtual CoreObjOutboundBuildResult BuildCoreObjV2Ray() { return {}; };
 
         virtual ExternalBuildResult BuildExternal(int mapping_port, int socks_port, int external_stat) { return {}; };
 

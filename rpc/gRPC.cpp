@@ -75,6 +75,8 @@ namespace QtGrpc {
             request.setRawHeader(AcceptEncodingHeader, QByteArray{"identity,gzip"});
             request.setRawHeader(TEHeader, QByteArray{"trailers"});
             request.setRawHeader("nekoray_auth", nekoray_auth);
+            // Compatibility header: some stacks may normalize/drop underscore headers.
+            request.setRawHeader("nekoray-auth", nekoray_auth);
 
             QByteArray msg(GrpcMessageSizeHeaderSize, '\0');
             *reinterpret_cast<int *>(msg.data() + 1) = qToBigEndian((int) args.size());

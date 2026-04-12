@@ -18,7 +18,11 @@ type Authenticator struct {
 func (a Authenticator) Authenticate(ctx context.Context) (newCtx context.Context, err error) {
 	auth, err := extractHeader(ctx, "nekoray_auth")
 	if err != nil {
-		return ctx, err
+		// Compatibility: accept token from hyphen header name too.
+		auth, err = extractHeader(ctx, "nekoray-auth")
+		if err != nil {
+			return ctx, err
+		}
 	}
 
 	if auth != a.Token {

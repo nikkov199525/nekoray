@@ -5,8 +5,7 @@
 ```
   | nekoray
   |   go/cmd/*
-  | sing-box-extra
-  | sing-box
+  | Xray-core
   | ......
 ```
 
@@ -19,6 +18,6 @@
 
 非官方构建无需编译 `updater` `launcher`
 
-### sing-box tags
+### Xray version
 
-具体使用的 tags 请看 `libs/build_go.sh`
+具体使用的版本请看 `libs/get_source_env.sh` 与 `libs/build_go.sh`

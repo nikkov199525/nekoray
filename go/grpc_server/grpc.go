@@ -10,11 +10,8 @@ import (
 	"log"
 	"net"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/matsuridayo/libneko/neko_common"
 
@@ -38,28 +35,11 @@ func RunCore(setupCore func(), server gen.LibcoreServiceServer) {
 	_token := flag.String("token", "", "")
 	_port := flag.Int("port", 19810, "")
 	_debug := flag.Bool("debug", false, "")
+	_parentPID := flag.Int("parent-pid", 0, "")
 	flag.CommandLine.Parse(os.Args[2:])
 
 	neko_common.Debug = *_debug
-
-	go func() {
-		parent, err := os.FindProcess(os.Getppid())
-		if err != nil {
-			log.Fatalln("find parent:", err)
-		}
-		if runtime.GOOS == "windows" {
-			state, err := parent.Wait()
-			log.Fatalln("parent exited:", state, err)
-		} else {
-			for {
-				time.Sleep(time.Second * 10)
-				err = parent.Signal(syscall.Signal(0))
-				if err != nil {
-					log.Fatalln("parent exited:", err)
-				}
-			}
-		}
-	}()
+	_ = _parentPID // kept for backward-compatible cli args
 
 	// Libcore
 	setupCore()
