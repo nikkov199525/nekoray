@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -33,7 +34,8 @@ func Updater() {
 	log.Println("updating from", updatePackagePath)
 
 	// extract update package
-	if strings.HasSuffix(updatePackagePath, ".zip") {
+	lowerPackagePath := strings.ToLower(updatePackagePath)
+	if strings.HasSuffix(lowerPackagePath, ".zip") {
 		pre_cleanup()
 		f, err := os.Open(updatePackagePath)
 		if err != nil {
@@ -44,7 +46,7 @@ func Updater() {
 			log.Fatalln(err.Error())
 		}
 		f.Close()
-	} else if strings.HasSuffix(updatePackagePath, ".tar.gz") {
+	} else if strings.HasSuffix(lowerPackagePath, ".tar.gz") {
 		pre_cleanup()
 		f, err := os.Open(updatePackagePath)
 		if err != nil {
@@ -55,6 +57,14 @@ func Updater() {
 			log.Fatalln(err.Error())
 		}
 		f.Close()
+	} else {
+		log.Fatalln("unsupported update package:", updatePackagePath)
+	}
+
+	payloadRoot, err := findUpdatePayload("./nekoray_update")
+	if err != nil {
+		MessageBoxPlain("NekoGui Updater", "Update package is invalid.\n\n"+err.Error())
+		log.Fatalln(err.Error())
 	}
 
 	// remove old file
@@ -62,7 +72,7 @@ func Updater() {
 	removeAll("./*.dmp")
 
 	// update move
-	err := Mv("./nekoray_update/nekoray", "./")
+	err = Mv(payloadRoot, "./")
 	if err != nil {
 		MessageBoxPlain("NekoGui Updater", "Update failed. Please close the running instance and run the updater again.\n\n"+err.Error())
 		log.Fatalln(err.Error())
@@ -76,6 +86,33 @@ func Updater() {
 	os.Remove("./nekoray.exe")
 	os.Remove("./nekoray.png")
 	os.Remove("./nekoray_core.exe")
+}
+
+func containsNekoBox(path string) bool {
+	return Exist(filepath.Join(path, "nekobox.exe")) || Exist(filepath.Join(path, "nekobox"))
+}
+
+// findUpdatePayload accepts both the legacy archive layout (nekoray/*) and
+// portable release archives whose application files are at the ZIP root.
+func findUpdatePayload(root string) (string, error) {
+	legacyRoot := filepath.Join(root, "nekoray")
+	if containsNekoBox(legacyRoot) {
+		return legacyRoot, nil
+	}
+	if containsNekoBox(root) {
+		return root, nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 1 && entries[0].IsDir() {
+		wrappedRoot := filepath.Join(root, entries[0].Name())
+		if containsNekoBox(wrappedRoot) {
+			return wrappedRoot, nil
+		}
+	}
+	return "", fmt.Errorf("nekobox executable not found in update package")
 }
 
 func Exist(path string) bool {

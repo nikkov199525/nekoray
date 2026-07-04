@@ -10,7 +10,7 @@
 
 namespace NekoGui_network {
 
-    NekoHTTPResponse NetworkRequestHelper::HttpGet(const QUrl &url) {
+    NekoHTTPResponse NetworkRequestHelper::HttpGet(const QUrl &url, int timeoutMs) {
         QNetworkRequest request;
         QNetworkAccessManager accessManager;
         request.setUrl(url);
@@ -56,7 +56,7 @@ namespace NekoGui_network {
         // Wait for response
         auto abortTimer = new QTimer;
         abortTimer->setSingleShot(true);
-        abortTimer->setInterval(10000);
+        abortTimer->setInterval(timeoutMs);
         QObject::connect(abortTimer, &QTimer::timeout, _reply, &QNetworkReply::abort);
         abortTimer->start();
         {

@@ -62,14 +62,11 @@
             "type": "tun",
             "tag": "tun-in",
             "interface_name": "%TUN_NAME%",
-            "inet4_address": "172.19.0.1/28",
-            //%IPV6_ADDRESS%
+            "address": ["172.19.0.1/28"//%IPV6_ADDRESS%],
             "mtu": %MTU%,
             "auto_route": true,
             "strict_route": %STRICT_ROUTE%,
-            "stack": "%STACK%",
-            "endpoint_independent_nat": true,
-            "sniff": false
+            "stack": "%STACK%"
         }
     ],
     "outbounds": [
@@ -88,10 +85,6 @@
         {
             "type": "direct",
             "tag": "direct"
-        },
-        {
-            "type": "dns",
-            "tag": "dns-out"
         }
     ],
     "route": {
@@ -129,7 +122,7 @@
                     "nekoray_core",
                     "nekoray_core.exe"
                 ],
-                "outbound": "dns-out"
+                "action": "hijack-dns"
             },
             {
                 "process_name": [
@@ -145,7 +138,7 @@
             ,
             {
                 "port": 53,
-                "outbound": "dns-out"
+                "action": "hijack-dns"
             }
         ]
     }

@@ -10,7 +10,7 @@ import (
 	"github.com/matsuridayo/libneko/neko_common"
 	"github.com/matsuridayo/libneko/speedtest"
 	box "github.com/sagernet/sing-box"
-	"github.com/sagernet/sing-box/boxapi"
+	"github.com/sagernet/sing-box/experimental/v2rayapi"
 	"github.com/sagernet/sing-box/option"
 
 	"log"
@@ -20,7 +20,7 @@ type server struct {
 	grpc_server.BaseServer
 }
 
-var statsServer *boxapi.SbV2rayServer
+var statsServer *v2rayapi.StatsService
 
 func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.ErrorResp, _ error) {
 	var err error
@@ -48,11 +48,11 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 	log.Println("grpc Start requested")
 	instance, instance_cancel, err = createAndStartBox([]byte(in.CoreConfig), true)
 	if err == nil && instance != nil && len(in.StatsOutbounds) > 0 {
-		statsServer = boxapi.NewSbV2rayServer(option.V2RayStatsServiceOptions{
+		statsServer = v2rayapi.NewStatsService(option.V2RayStatsServiceOptions{
 			Enabled:   true,
 			Outbounds: in.StatsOutbounds,
 		})
-		instance.Router().AppendTracker(statsServer.StatsService())
+		instance.Router().AppendTracker(statsServer)
 	}
 	return
 }
@@ -110,7 +110,7 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 				return
 			}
 		}
-		out.Ms, err = speedtest.UrlTest(boxapi.CreateProxyHttpClient(i, nil), in.Url, in.Timeout, speedtest.UrlTestStandard_RTT)
+		out.Ms, err = speedtest.UrlTest(createProxyHTTPClient(i), in.Url, in.Timeout, speedtest.UrlTestStandard_RTT)
 	} else if in.Mode == gen.TestMode_TcpPing {
 		out.Ms, err = speedtest.TcpPing(in.Address, in.Timeout)
 	} else if in.Mode == gen.TestMode_FullTest {
@@ -132,7 +132,7 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 func (s *server) QueryStats(ctx context.Context, in *gen.QueryStatsReq) (out *gen.QueryStatsResp, _ error) {
 	out = &gen.QueryStatsResp{}
 	if statsServer != nil {
-		out.Traffic = statsServer.QueryStats("outbound>>>" + in.Tag + ">>>traffic>>>" + in.Direct)
+		out.Traffic = queryStats(statsServer, "outbound>>>"+in.Tag+">>>traffic>>>"+in.Direct)
 	}
 	return
 }

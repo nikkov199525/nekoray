@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sagernet/sing-box/boxapi"
+	"github.com/sagernet/sing-box/experimental/v2rayapi"
 	"github.com/sagernet/sing-box/option"
 )
 
@@ -68,7 +68,18 @@ func writeStatsSnapshot(statsFile string, stats map[string]*runtimeOutboundStats
 	return os.Rename(tmpFile, statsFile)
 }
 
-func startStatsWriter(statsFile string, statsServer *boxapi.SbV2rayServer, outbounds []string) context.CancelFunc {
+func queryStats(statsServer *v2rayapi.StatsService, name string) int64 {
+	response, err := statsServer.GetStats(context.Background(), &v2rayapi.GetStatsRequest{
+		Name:   name,
+		Reset_: true,
+	})
+	if err != nil || response.Stat == nil {
+		return 0
+	}
+	return response.Stat.Value
+}
+
+func startStatsWriter(statsFile string, statsServer *v2rayapi.StatsService, outbounds []string) context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
@@ -104,8 +115,8 @@ func startStatsWriter(statsFile string, statsServer *boxapi.SbV2rayServer, outbo
 					if item == nil {
 						continue
 					}
-					uplink := statsServer.QueryStats("outbound>>>" + tag + ">>>traffic>>>uplink")
-					downlink := statsServer.QueryStats("outbound>>>" + tag + ">>>traffic>>>downlink")
+					uplink := queryStats(statsServer, "outbound>>>"+tag+">>>traffic>>>uplink")
+					downlink := queryStats(statsServer, "outbound>>>"+tag+">>>traffic>>>downlink")
 					item.Uplink += uplink
 					item.Downlink += downlink
 					item.UplinkRate = uplink * 1000 / interval
@@ -180,11 +191,11 @@ func runSingBoxCommand(args []string) error {
 		if len(statsOutbounds) == 0 {
 			statsOutbounds = []string{"proxy", "bypass"}
 		}
-		statsServer := boxapi.NewSbV2rayServer(option.V2RayStatsServiceOptions{
+		statsServer := v2rayapi.NewStatsService(option.V2RayStatsServiceOptions{
 			Enabled:   true,
 			Outbounds: statsOutbounds,
 		})
-		ins.Router().AppendTracker(statsServer.StatsService())
+		ins.Router().AppendTracker(statsServer)
 		stopStatsWriter := startStatsWriter(statsFile, statsServer, statsOutbounds)
 		defer stopStatsWriter()
 	}

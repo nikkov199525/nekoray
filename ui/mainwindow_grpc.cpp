@@ -4,6 +4,7 @@
 #include "db/Database.hpp"
 #include "db/ConfigBuilder.hpp"
 #include "db/traffic/TrafficLooper.hpp"
+#include "main/HTTPRequestHelper.hpp"
 #include "rpc/gRPC.h"
 #include "ui/widget/MessageBoxTimer.h"
 
@@ -16,6 +17,14 @@
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSysInfo>
+#include <QVector>
+
+#include <algorithm>
 
 // ext core
 
@@ -575,9 +584,138 @@ void MainWindow::neko_stop(bool crash, bool sem) {
     });
 }
 
+namespace {
+#ifdef NKR_NO_GRPC
+    struct GuiUpdateCandidate {
+        QString assetName;
+        QString downloadUrl;
+        QString releaseUrl;
+        QString releaseNote;
+        QString version;
+        bool preRelease = false;
+    };
+
+    QVector<int> updateVersionNumbers(QString version) {
+        if (version.startsWith("nekoray-", Qt::CaseInsensitive)) version.remove(0, 8);
+        static const QRegularExpression forkPattern(
+            R"(^v?([0-9]+(?:\.[0-9]+)*)fork-([0-9]{4})\.([0-9]{1,2})\.([0-9]{1,2})$)",
+            QRegularExpression::CaseInsensitiveOption);
+        const auto forkMatch = forkPattern.match(version.trimmed());
+        QVector<int> result;
+        if (forkMatch.hasMatch()) {
+            for (const auto &part: forkMatch.captured(1).split('.')) result << part.toInt();
+            // Fork versions use YYYY.DD.MM; compare them chronologically.
+            result << forkMatch.captured(2).toInt() << forkMatch.captured(4).toInt() << forkMatch.captured(3).toInt();
+            return result;
+        }
+
+        static const QRegularExpression numberPattern(R"([0-9]+)");
+        auto matches = numberPattern.globalMatch(version);
+        while (matches.hasNext()) result << matches.next().captured().toInt();
+        return result;
+    }
+
+    int compareUpdateVersions(const QString &left, const QString &right) {
+        const auto a = updateVersionNumbers(left);
+        const auto b = updateVersionNumbers(right);
+        const auto size = std::max(a.size(), b.size());
+        for (int i = 0; i < size; ++i) {
+            const auto av = i < a.size() ? a[i] : 0;
+            const auto bv = i < b.size() ? b[i] : 0;
+            if (av < bv) return -1;
+            if (av > bv) return 1;
+        }
+        return 0;
+    }
+
+    QString updateAssetVersion(const QString &name, const QString &platform) {
+        if (!name.startsWith("nekoray-", Qt::CaseInsensitive)) return {};
+        auto base = name;
+        if (base.endsWith(".tar.gz", Qt::CaseInsensitive)) {
+            base.chop(7);
+        } else if (base.endsWith(".zip", Qt::CaseInsensitive)) {
+            base.chop(4);
+        } else {
+            return {};
+        }
+        const auto suffix = "-" + platform;
+        if (!base.endsWith(suffix, Qt::CaseInsensitive)) return {};
+        return base.mid(8, base.size() - 8 - suffix.size());
+    }
+
+    GuiUpdateCandidate findGuiUpdate(const QJsonArray &releases, const QString &currentVersion, const QString &platform, bool includePreRelease) {
+        GuiUpdateCandidate best;
+        for (const auto &releaseValue: releases) {
+            const auto release = releaseValue.toObject();
+            const auto preRelease = release["prerelease"].toBool();
+            if (release["draft"].toBool() || (preRelease && !includePreRelease)) continue;
+            for (const auto &assetValue: release["assets"].toArray()) {
+                const auto asset = assetValue.toObject();
+                const auto assetName = asset["name"].toString();
+                const auto version = updateAssetVersion(assetName, platform);
+                if (version.isEmpty() || compareUpdateVersions(version, currentVersion) <= 0) continue;
+                if (best.version.isEmpty() || compareUpdateVersions(version, best.version) > 0) {
+                    best.assetName = assetName;
+                    best.downloadUrl = asset["browser_download_url"].toString();
+                    best.releaseUrl = release["html_url"].toString();
+                    best.releaseNote = release["body"].toString();
+                    best.version = version;
+                    best.preRelease = preRelease;
+                }
+            }
+        }
+        return best;
+    }
+#endif
+} // namespace
+
 void MainWindow::CheckUpdate() {
-    // on new thread...
-#ifndef NKR_NO_GRPC
+    // Runs on a worker thread.
+    QString assetName;
+    QString downloadUrl;
+    QString releaseUrl;
+    QString releaseNote;
+    bool isPreRelease = false;
+    std::function<QString()> downloadUpdate;
+
+#ifdef NKR_NO_GRPC
+#ifdef Q_OS_WIN
+    const auto platform = QStringLiteral("windows64");
+#elif defined(Q_OS_LINUX)
+    const auto platform = QStringLiteral("linux64");
+#else
+    const auto platform = QStringLiteral("macos-") + QSysInfo::currentCpuArchitecture();
+#endif
+    const auto apiResponse = NetworkRequestHelper::HttpGet(
+        QUrl(QStringLiteral("https://api.github.com/repos/nikkov199525/nekoray/releases?per_page=30")));
+    if (!apiResponse.error.isEmpty()) {
+        runOnUiThread([error = apiResponse.error] { MessageBoxWarning(QObject::tr("Update"), error); });
+        return;
+    }
+    QJsonParseError parseError;
+    const auto releasesDocument = QJsonDocument::fromJson(apiResponse.data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !releasesDocument.isArray()) {
+        const auto error = parseError.error != QJsonParseError::NoError ? parseError.errorString() : QObject::tr("Invalid GitHub response");
+        runOnUiThread([error] { MessageBoxWarning(QObject::tr("Update"), error); });
+        return;
+    }
+    const auto candidate = findGuiUpdate(releasesDocument.array(), QString::fromUtf8(NKR_VERSION), platform,
+                                         NekoGui::dataStore->check_include_pre);
+    assetName = candidate.assetName;
+    downloadUrl = candidate.downloadUrl;
+    releaseUrl = candidate.releaseUrl;
+    releaseNote = candidate.releaseNote;
+    isPreRelease = candidate.preRelease;
+    downloadUpdate = [downloadUrl] {
+        const auto response = NetworkRequestHelper::HttpGet(QUrl(downloadUrl), 300000);
+        if (!response.error.isEmpty()) return response.error;
+        QSaveFile packageFile(QDir(QApplication::applicationDirPath()).filePath("nekoray.zip"));
+        if (!packageFile.open(QIODevice::WriteOnly)) return packageFile.errorString();
+        if (packageFile.write(response.data) != response.data.size()) return packageFile.errorString();
+        if (!packageFile.commit()) return packageFile.errorString();
+        return QString{};
+    };
+#else
     bool ok;
     libcore::UpdateReq request;
     request.set_action(libcore::UpdateAction::Check);
@@ -585,15 +723,27 @@ void MainWindow::CheckUpdate() {
     auto response = NekoGui_rpc::defaultClient->Update(&ok, request);
     if (!ok) return;
 
-    auto err = response.error();
-    if (!err.empty()) {
-        runOnUiThread([=] {
-            MessageBoxWarning(QObject::tr("Update"), err.c_str());
-        });
+    if (!response.error().empty()) {
+        const auto error = QString::fromStdString(response.error());
+        runOnUiThread([error] { MessageBoxWarning(QObject::tr("Update"), error); });
         return;
     }
+    assetName = QString::fromStdString(response.assets_name());
+    downloadUrl = QString::fromStdString(response.download_url());
+    releaseUrl = QString::fromStdString(response.release_url());
+    releaseNote = QString::fromStdString(response.release_note());
+    isPreRelease = response.is_pre_release();
+    downloadUpdate = [] {
+        bool ok;
+        libcore::UpdateReq request;
+        request.set_action(libcore::UpdateAction::Download);
+        const auto response = NekoGui_rpc::defaultClient->Update(&ok, request);
+        if (!ok) return QObject::tr("Update service is unavailable");
+        return QString::fromStdString(response.error());
+    };
+#endif
 
-    if (response.release_download_url() == nullptr) {
+    if (downloadUrl.isEmpty()) {
         runOnUiThread([=] {
             MessageBoxInfo(QObject::tr("Update"), QObject::tr("No update"));
         });
@@ -602,9 +752,9 @@ void MainWindow::CheckUpdate() {
 
     runOnUiThread([=] {
         auto allow_updater = !NekoGui::dataStore->flag_use_appdata;
-        auto note_pre_release = response.is_pre_release() ? " (Pre-release)" : "";
+        auto note_pre_release = isPreRelease ? " (Pre-release)" : "";
         QMessageBox box(QMessageBox::Question, QObject::tr("Update") + note_pre_release,
-                        QObject::tr("Update found: %1\nRelease note:\n%2").arg(response.assets_name().c_str(), response.release_note().c_str()));
+                        QObject::tr("Update found: %1\nRelease note:\n%2").arg(assetName, releaseNote));
         //
         QAbstractButton *btn1 = nullptr;
         if (allow_updater) {
@@ -617,12 +767,9 @@ void MainWindow::CheckUpdate() {
         if (btn1 == box.clickedButton() && allow_updater) {
             // Download Update
             runOnNewThread([=] {
-                bool ok2;
-                libcore::UpdateReq request2;
-                request2.set_action(libcore::UpdateAction::Download);
-                auto response2 = NekoGui_rpc::defaultClient->Update(&ok2, request2);
+                const auto error = downloadUpdate();
                 runOnUiThread([=] {
-                    if (response2.error().empty()) {
+                    if (error.isEmpty()) {
                         auto q = QMessageBox::question(nullptr, QObject::tr("Update"),
                                                        QObject::tr("Update is ready, restart to install?"));
                         if (q == QMessageBox::StandardButton::Yes) {
@@ -630,13 +777,12 @@ void MainWindow::CheckUpdate() {
                             on_menu_exit_triggered();
                         }
                     } else {
-                        MessageBoxWarning(QObject::tr("Update"), response2.error().c_str());
+                        MessageBoxWarning(QObject::tr("Update"), error);
                     }
                 });
             });
         } else if (btn2 == box.clickedButton()) {
-            QDesktopServices::openUrl(QUrl(response.release_url().c_str()));
+            QDesktopServices::openUrl(QUrl(releaseUrl));
         }
     });
-#endif
 }

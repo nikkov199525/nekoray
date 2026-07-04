@@ -1,10 +1,16 @@
 # NekoRay Fork For PC
 
-Qt based cross-platform GUI proxy configuration manager (backend: Xray)
+Qt based cross-platform GUI proxy configuration manager (backends: sing-box and Xray)
 
 Support Windows / Linux out of the box now.
 
-基于 Qt 的跨平台代理配置管理器 (后端 Xray)
+Pinned release cores: sing-box 1.13.14 and Xray 26.3.27. Xray removed
+`allowInsecure` after 2026-06-01, so certificate verification bypass is only
+applied to sing-box profiles; Xray profiles require a valid or pinned certificate.
+GeoIP, GeoSite, and sing-box rule sets are sourced from the `release` branch of
+[runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat/tree/release).
+
+基于 Qt 的跨平台代理配置管理器（后端 sing-box 与 Xray）
 
 目前支持 Windows / Linux 开箱即用
 
@@ -14,9 +20,9 @@ Support Windows / Linux out of the box now.
 
 便携格式，无安装器。转到 Releases 下载预编译的二进制文件，解压后即可使用。
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/nekoray/releases)
+[![GitHub All Releases](https://img.shields.io/github/downloads/nikkov199525/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/nikkov199525/nekoray/releases)
 
-[下载 / Download](https://github.com/Matsuridayo/nekoray/releases)
+[下载 / Download](https://github.com/nikkov199525/nekoray/releases)
 
 [安装包的说明，如果你不知道要下载哪一个](https://github.com/MatsuriDayo/nekoray/wiki/Installation-package-description)
 
@@ -78,7 +84,7 @@ https://matsuridayo.github.io
 
 ## 编译教程 / Compile Tutorial
 
-请看 [技术文档 / Technical documentation](https://github.com/MatsuriDayo/nekoray/tree/main/docs)
+请看 [技术文档 / Technical documentation](https://github.com/nikkov199525/nekoray/tree/fork/main/docs)
 
 ## 捐助 / Donate
 
@@ -100,6 +106,7 @@ XMR
 
 Core:
 
+- [SagerNet/sing-box](https://github.com/SagerNet/sing-box) (embedded backend)
 - [v2fly/v2ray-core](https://github.com/v2fly/v2ray-core) ( < 3.10 )
 - [MatsuriDayo/Matsuri](https://github.com/MatsuriDayo/Matsuri) ( < 3.10 )
 - [MatsuriDayo/v2ray-core](https://github.com/MatsuriDayo/v2ray-core) ( < 3.10 )

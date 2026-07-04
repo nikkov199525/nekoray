@@ -9,9 +9,11 @@ pushd ..
 ####
 
 if [ ! -d "sing-box" ]; then
-  git clone --no-checkout https://github.com/MatsuriDayo/sing-box.git
+  git clone --no-checkout https://github.com/SagerNet/sing-box.git
 fi
 pushd sing-box
+git remote set-url origin https://github.com/SagerNet/sing-box.git
+git fetch origin --tags --prune
 git checkout "$COMMIT_SING_BOX"
 
 popd

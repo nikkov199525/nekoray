@@ -71,7 +71,9 @@ namespace NekoGui_fmt {
             if (!fp.trimmed().isEmpty()) tls["fingerprint"] = fp;
             if (!sni.trimmed().isEmpty()) tls["serverName"] = sni;
             if (reality_pbk.trimmed().isEmpty()) {
-                if (allow_insecure || NekoGui::dataStore->skip_cert) tls["allowInsecure"] = true;
+                // Xray 26.3.27 rejects allowInsecure after 2026-06-01.
+                // Keep certificate bypass as a sing-box-only option; emitting the
+                // removed Xray field makes the whole generated config invalid.
                 if (!alpn.trimmed().isEmpty()) tls["alpn"] = QList2QJsonArray(alpn.split(","));
                 if (!certificate.trimmed().isEmpty()) {
                     tls["disableSystemRoot"] = true;
